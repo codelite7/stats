@@ -1,0 +1,75 @@
+name: Pull Request
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'Dockerfile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'skaffold.yaml'
+jobs:
+  validate-pr-title:
+    name: Validate PR Title
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: crazy-max/ghaction-dump-context@v1
+      - uses: amannn/action-semantic-pull-request@v3.4.6
+        with:
+          types: |
+            fix
+            feat
+            norelease
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+  compile:
+    if: github.event.pull_request.draft == false
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup cache
+        uses: actions/cache@v2
+        with:
+          # In order:
+          # * go Module download cache
+          # * go Build cache (Linux)
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Setup go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.17
+      - name: Compile
+        working-directory: src
+        run: |
+          git config --global url."https://${{ secrets.GIT_RUNNER_USER }}:${{ secrets.GIT_RUNNER_TOKEN }}@github.com".insteadOf "https://github.com"
+          go build
+  test:
+    name: Test
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    needs: compile
+    env:
+      GIT_PAT: ${{ secrets.GIT_RUNNER_TOKEN }}
+    steps:
+      - name: Dump Context
+        uses: crazy-max/ghaction-dump-context@v1
+      - name: Run Tests
+        uses: swarm-io/action-kind-test@v1
+        with:
+          token: ${{ secrets.GIT_RUNNER_TOKEN }}
+          ref: ${{ github.ref }}
+          project-id: ${{ secrets.GCLOUD_PROJECT_ID_PROD }}
+          credentials-json: ${{ secrets.GAR_WRITE_SERVICE_ACCOUNT_KEY }}
+          wait-for-ports: 8080
+          helm-repo-username: ${{ secrets.GIT_RUNNER_TOKEN }}
+          helm-repo-password: ${{ secrets.GIT_RUNNER_TOKEN }}

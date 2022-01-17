@@ -1,0 +1,71 @@
+apiVersion: skaffold/v2beta25
+kind: Config
+build:
+  tagPolicy:
+    sha256: {}
+  artifacts:
+    - image: stats
+      custom:
+        buildCommand: |
+          docker buildx build --tag $IMAGE --load --cache-from type=registry,ref=us-west1-docker.pkg.dev/swarm-prod-282105/images/stats:cache,mode=max --build-arg BUILDKIT_INLINE_CACHE=1 --secret id=GIT_PAT "$BUILD_CONTEXT"
+        dependencies:
+          dockerfile:
+            path: Dockerfile
+  local:
+    push: false
+deploy:
+  helm:
+    releases:
+      - name: stats
+        # to use the remoteChart config, add the swarm helm repo locally. i.e. run `helm repo add swarm https://raw.githubusercontent.com/swarm-io/charts/main --username $GIT_PAT --password $GIT_PAT`
+#        remoteChart: swarm/stats
+        namespace: stats
+        createNamespace: true
+        version: '>=1.0.0-alpha'
+#        if testing chart changes, use chartPath pointing to your locally cloned chart repo
+        chartPath: /home/zack/dev/swarm-io/chart-stats/chart
+        artifactOverrides:
+          image: stats
+        imageStrategy:
+          helm: {}
+        setValues:
+          'mongodb.enabled': true
+        skipBuildDependencies: false
+    #        If testing values changes, use valuesFiles to point to your locally cloned chart repo
+#        valuesFiles:
+#          you can also use env var substitutions here to fetch remote values from private repos
+#          - https://{{ .GIT_PAT }}@raw.githubusercontent.com/swarm-io/chart-stats/main/chart/myvalues.yaml
+#          - /home/zack/dev/swarm-io/chart-stats/chart/myvalues.yaml
+portForward:
+  # pf for grpc server
+  - resourceType: service
+    resourceName: stats
+    namespace: stats
+    port: 8083
+    localPort: 8083
+  # pf for mongodb
+  - resourceType: service
+    resourceName: stats-mongodb
+    namespace: stats
+    port: 27017
+    localPort: 27017
+profiles:
+  - name: actions
+    activation:
+      - env: SKAFFOLD_ACTIONS=true
+    build:
+      artifacts:
+        - image: stats
+          custom:
+            buildCommand: |
+              docker buildx build --tag $IMAGE --load --cache-from type=gha,mode=max --cache-to type=gha,mode=max --build-arg BUILDKIT_INLINE_CACHE=1 --secret id=GIT_PAT "$BUILD_CONTEXT"
+            dependencies:
+              dockerfile:
+                path: Dockerfile
+  - name: dbonly
+    portForward:
+      - resourceType: service
+        resourceName: stats-mongodb
+        namespace: stats
+        port: 27017
+        localPort: 27017
