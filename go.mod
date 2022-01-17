@@ -11,7 +11,8 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/swarm-io/app-utils-go v1.0.7
 	github.com/swarm-io/client-mongodb v1.0.0
-	github.com/swarm-io/protos-stats v1.0.3-0.20220117155700-aedbf1012a2c
+	github.com/swarm-io/protos-stats v1.0.3-0.20220117175137-352034dad959
+	github.com/tidwall/sjson v1.2.4
 	go.mongodb.org/mongo-driver v1.8.2
 	google.golang.org/grpc v1.43.0
 	google.golang.org/protobuf v1.26.0
@@ -28,6 +29,9 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/zerolog v1.26.1 // indirect
+	github.com/tidwall/gjson v1.12.1 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.0 // indirect
 	github.com/xdg-go/stringprep v1.0.2 // indirect

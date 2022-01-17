@@ -6,8 +6,8 @@ var AppStore Store
 
 type Store interface {
 	Initialize() (deferredFunc func(), err error)
-	GetPipelineStatsAggregate(req *statsv1alpha1.GetPipelineStatsAggregateRequest) *statsv1alpha1.GetPipelineStatsAggregateResponse
-	GetPipelineStatsSeries(req *statsv1alpha1.GetPipelineStatsSeriesRequest) *statsv1alpha1.GetPipelineStatsSeriesResponse
+	GetPipelineStats(req *statsv1alpha1.GetPipelineStatsRequest) *statsv1alpha1.GetPipelineStatsResponse
+	ClearPipelineStats(req *statsv1alpha1.ClearPipelineStatsRequest) *statsv1alpha1.ClearPipelineStatsResponse
 	ReportPipelineStats(req *statsv1alpha1.ReportPipelineStatsRequest) *statsv1alpha1.ReportPipelineStatsResponse
 }
 

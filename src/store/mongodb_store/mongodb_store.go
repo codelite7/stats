@@ -10,7 +10,7 @@ import (
 	statsv1alpha1 "github.com/swarm-io/protos-stats/gen/proto/go/stats/v1alpha1"
 	"github.com/swarm-io/stats/src/config"
 	"github.com/swarm-io/stats/src/store/mongodb_store/models"
-	"go.mongodb.org/mongo-driver/bson"
+	"github.com/swarm-io/stats/src/store/mongodb_store/queries"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -24,7 +24,7 @@ func (s MongodbStore) Initialize() (func(), error) {
 	return driver.CloseConnection, nil
 }
 
-func (s MongodbStore) GetPipelineStatsAggregate(req *statsv1alpha1.GetPipelineStatsAggregateRequest) *statsv1alpha1.GetPipelineStatsAggregateResponse {
+func (s MongodbStore) GetPipelineStats(req *statsv1alpha1.GetPipelineStatsRequest) *statsv1alpha1.GetPipelineStatsResponse {
 	session, err := driver.MongoClient.StartSession()
 	if err != nil {
 		panic(err)
@@ -34,47 +34,40 @@ func (s MongodbStore) GetPipelineStatsAggregate(req *statsv1alpha1.GetPipelineSt
 		defer func() {
 			err = sentryutils.RecoverWithCapture(logging.Log.WithFields(nil), "error persisting pipeline stats", nil, recover())
 		}()
-		matchStage := bson.D{{"$match", bson.D{}}}
-		groupStage := bson.D{{"$group", bson.D{
-			{"_id", "$pipeline_id"},
-			{"total_records_handled", bson.D{{"$sum", "$records_handled"}}},
-			{"total_bytes_handled", bson.D{{"$sum", "$bytes_total"}}},
-			{"total_num_errors", bson.D{{"$sum", "$num_errors"}}},
-			{"total_num_retries", bson.D{{"$sum", "$num_retries"}}},
-		}},
-		}
-		pipeline := mongo.Pipeline{matchStage, groupStage}
+		pipeline := queries.GetPipelineStatsQuery(req.GetIds(), req.GetFromTimestamp(), req.GetToTimestamp(), req.GetIncludeStats())
 		cursor, err := getPipelineStatsCollection().Aggregate(context.Background(), pipeline)
 		if err != nil {
 			panic(err)
 		}
-		var aggResult []models.PipelineAggregateResult
+		var aggResult []models.PipelineAggregateStats
 		err = cursor.All(context.Background(), &aggResult)
 		if err != nil {
 			panic(err)
 		}
-		return aggResult[0], nil
+		return aggResult, nil
 	}
 	aggResult, err := session.WithTransaction(context.Background(), callback)
 	if err != nil {
 		panic(err)
 	}
-	aggResultBytes, err := json.Marshal(aggResult)
-	if err != nil {
-		panic(err)
-	}
-	var response statsv1alpha1.GetPipelineStatsAggregateResponse
-	err = protojson.Unmarshal(aggResultBytes, &response)
-	if err != nil {
-		panic(err)
+	response := statsv1alpha1.GetPipelineStatsResponse{Stats: map[string]*statsv1alpha1.PipelineAggregateStats{}}
+	for _, pipelineStats := range aggResult.([]models.PipelineAggregateStats) {
+		response.TotalRecordsHandled += pipelineStats.TotalRecordsHandled
+		response.TotalBytesHandled += pipelineStats.TotalBytesHandled
+		response.TotalNumRetries += pipelineStats.TotalNumRetries
+		response.TotalNumErrors += pipelineStats.TotalNumErrors
+		pipelineStatsJson, err := json.Marshal(&pipelineStats)
+		if err != nil {
+			panic(err)
+		}
+		var responseStats statsv1alpha1.PipelineAggregateStats
+		err = protojson.Unmarshal(pipelineStatsJson, &responseStats)
+		if err != nil {
+			panic(err)
+		}
+		response.Stats[pipelineStats.PipelineId] = &responseStats
 	}
 	return &response
-}
-
-func (s MongodbStore) GetPipelineStatsSeries(req *statsv1alpha1.GetPipelineStatsSeriesRequest) *statsv1alpha1.GetPipelineStatsSeriesResponse {
-	logging.Log.Info("GetPipelineStatsSeries Unimplemented")
-
-	return &statsv1alpha1.GetPipelineStatsSeriesResponse{}
 }
 
 func (s MongodbStore) ReportPipelineStats(req *statsv1alpha1.ReportPipelineStatsRequest) *statsv1alpha1.ReportPipelineStatsResponse {
@@ -91,7 +84,7 @@ func (s MongodbStore) ReportPipelineStats(req *statsv1alpha1.ReportPipelineStats
 		if err != nil {
 			panic(err)
 		}
-		var model models.PipelineStats
+		var model models.PipelineStat
 		err = json.Unmarshal(protoJson, &model)
 		if err != nil {
 			panic(err)
@@ -109,6 +102,30 @@ func (s MongodbStore) ReportPipelineStats(req *statsv1alpha1.ReportPipelineStats
 		panic(err)
 	}
 	return &statsv1alpha1.ReportPipelineStatsResponse{}
+}
+
+func (s MongodbStore) ClearPipelineStats(req *statsv1alpha1.ClearPipelineStatsRequest) *statsv1alpha1.ClearPipelineStatsResponse {
+	session, err := driver.MongoClient.StartSession()
+	if err != nil {
+		panic(err)
+	}
+	defer session.EndSession(context.Background())
+	callback := func(sessionContext mongo.SessionContext) (result interface{}, err error) {
+		defer func() {
+			err = sentryutils.RecoverWithCapture(logging.Log.WithFields(nil), "error persisting pipeline stats", nil, recover())
+		}()
+		query := queries.GetClearPipelineStatsQuery(req.GetIds(), req.GetFromTimestamp(), req.GetToTimestamp())
+		_, err = getPipelineStatsCollection().DeleteMany(context.Background(), query)
+		if err != nil {
+			panic(err)
+		}
+		return nil, nil
+	}
+	_, err = session.WithTransaction(context.Background(), callback)
+	if err != nil {
+		panic(err)
+	}
+	return &statsv1alpha1.ClearPipelineStatsResponse{}
 }
 
 func getPipelineStatsCollection() *mongo.Collection {
