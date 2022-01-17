@@ -12,6 +12,7 @@ require (
 	github.com/swarm-io/app-utils-go v1.0.7
 	github.com/swarm-io/client-mongodb v1.0.0
 	github.com/swarm-io/protos-stats v1.0.3-0.20220117175137-352034dad959
+	github.com/thoas/go-funk v0.9.1
 	github.com/tidwall/sjson v1.2.4
 	go.mongodb.org/mongo-driver v1.8.2
 	google.golang.org/grpc v1.43.0

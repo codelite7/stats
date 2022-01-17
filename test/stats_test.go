@@ -52,15 +52,21 @@ func (suite *StatsTestSuite) TestReportPipelineStats() {
 	mustReportRandomPipelineStats(suite.T(), uuid.New().String())
 }
 
-func (suite *StatsTestSuite) TestGetPipelineStats() {
+func (suite *StatsTestSuite) TestGetAllPipelineStats() {
 	id1 := uuid.New().String()
 	id2 := uuid.New().String()
 	total1 := mustReportRandomPipelineStats(suite.T(), id1)
 	total2 := mustReportRandomPipelineStats(suite.T(), id2)
-	totalRecordsHandled := total1.GetRecordsHandled() + total2.GetRecordsHandled()
-	totalBytesHandled := total1.GetBytesHandled() + total2.GetBytesHandled()
-	totalNumErrors := total1.GetNumErrors() + total2.GetNumErrors()
-	totalNumRetries := total1.GetNumRetries() + total2.GetNumRetries()
+	expectedResponse := &statsv1alpha1.GetPipelineStatsResponse{
+		TotalRecordsHandled: total1.GetTotalRecordsHandled() + total2.GetTotalRecordsHandled(),
+		TotalBytesHandled:   total1.GetTotalBytesHandled() + total2.GetTotalBytesHandled(),
+		TotalNumErrors:      total1.GetTotalNumErrors() + total2.GetTotalNumErrors(),
+		TotalNumRetries:     total1.GetTotalNumRetries() + total2.GetTotalNumRetries(),
+		Stats: map[string]*statsv1alpha1.PipelineAggregateStats{
+			id1: total1,
+			id2: total2,
+		},
+	}
 	req := &statsv1alpha1.GetPipelineStatsRequest{
 		Ids:           nil,
 		IncludeStats:  true,
@@ -69,22 +75,100 @@ func (suite *StatsTestSuite) TestGetPipelineStats() {
 	}
 	response, err := Client.GetPipelineStats(context.Background(), req)
 	require.NoError(suite.T(), err)
-	validatePipelineStats(suite.T(), totalRecordsHandled, totalBytesHandled, totalNumErrors, totalNumRetries, []*statsv1alpha1.ReportPipelineStatsRequest{total1, total2}, response)
+	validatePipelineStats(suite.T(), expectedResponse, response)
 }
 
-func validatePipelineStats(t *testing.T, totalRecords, totalBytes, totalErrors, totalRetries int64, expectedStats []*statsv1alpha1.ReportPipelineStatsRequest, response *statsv1alpha1.GetPipelineStatsResponse) {
-	require.Len(t, response.GetStats(), len(expectedStats))
-	require.Equal(t, totalRecords, response.GetTotalRecordsHandled())
-	require.Equal(t, totalBytes, response.GetTotalBytesHandled())
-	require.Equal(t, totalErrors, response.GetTotalNumErrors())
-	require.Equal(t, totalRetries, response.GetTotalNumRetries())
-	for _, expectedStat := range expectedStats {
-		pipelineStats := response.Stats[expectedStat.GetPipelineId()]
-		require.NotNil(t, pipelineStats)
-		require.Equal(t, expectedStat.GetRecordsHandled(), pipelineStats.TotalRecordsHandled)
-		require.Equal(t, expectedStat.GetBytesHandled(), pipelineStats.TotalBytesHandled)
-		require.Equal(t, expectedStat.GetNumErrors(), pipelineStats.TotalNumErrors)
-		require.Equal(t, expectedStat.GetNumRetries(), pipelineStats.TotalNumRetries)
+func (suite *StatsTestSuite) TestGetSinglePipelineStats() {
+	id := uuid.New().String()
+	total1 := mustReportRandomPipelineStats(suite.T(), id)
+	expectedResponse := &statsv1alpha1.GetPipelineStatsResponse{
+		TotalRecordsHandled: total1.GetTotalRecordsHandled(),
+		TotalBytesHandled:   total1.GetTotalBytesHandled(),
+		TotalNumErrors:      total1.GetTotalNumErrors(),
+		TotalNumRetries:     total1.GetTotalNumRetries(),
+		Stats: map[string]*statsv1alpha1.PipelineAggregateStats{
+			id: total1,
+		},
+	}
+	mustReportRandomPipelineStats(suite.T(), uuid.New().String())
+	mustReportRandomPipelineStats(suite.T(), uuid.New().String())
+	req := &statsv1alpha1.GetPipelineStatsRequest{
+		Ids:           []string{id},
+		IncludeStats:  true,
+		FromTimestamp: 0,
+		ToTimestamp:   time.Now().UnixNano(),
+	}
+	response, err := Client.GetPipelineStats(context.Background(), req)
+	require.NoError(suite.T(), err)
+	validatePipelineStats(suite.T(), expectedResponse, response)
+}
+
+func (suite *StatsTestSuite) TestGetPipelineStatsNoSeries() {
+	id := uuid.New().String()
+	total := mustReportRandomPipelineStats(suite.T(), id)
+	total.Stats = nil
+	expectedResponse := &statsv1alpha1.GetPipelineStatsResponse{
+		TotalRecordsHandled: total.GetTotalRecordsHandled(),
+		TotalBytesHandled:   total.GetTotalBytesHandled(),
+		TotalNumErrors:      total.GetTotalNumErrors(),
+		TotalNumRetries:     total.GetTotalNumRetries(),
+		Stats: map[string]*statsv1alpha1.PipelineAggregateStats{
+			id: total,
+		},
+	}
+	req := &statsv1alpha1.GetPipelineStatsRequest{
+		Ids:           nil,
+		IncludeStats:  false,
+		FromTimestamp: 0,
+		ToTimestamp:   time.Now().UnixNano(),
+	}
+	response, err := Client.GetPipelineStats(context.Background(), req)
+	require.NoError(suite.T(), err)
+	validatePipelineStats(suite.T(), expectedResponse, response)
+}
+
+func (suite *StatsTestSuite) TestGetPipelineStatsInWindow() {
+	id := uuid.New().String()
+	// add stats before and after the time window
+	mustReportRandomPipelineStats(suite.T(), id)
+	fromTimestamp := time.Now().UnixNano()
+	total := mustReportRandomPipelineStats(suite.T(), id)
+	toTimestamp := time.Now().UnixNano()
+	mustReportRandomPipelineStats(suite.T(), id)
+	expectedResponse := &statsv1alpha1.GetPipelineStatsResponse{
+		TotalRecordsHandled: total.GetTotalRecordsHandled(),
+		TotalBytesHandled:   total.GetTotalBytesHandled(),
+		TotalNumErrors:      total.GetTotalNumErrors(),
+		TotalNumRetries:     total.GetTotalNumRetries(),
+		Stats: map[string]*statsv1alpha1.PipelineAggregateStats{
+			id: total,
+		},
+	}
+	req := &statsv1alpha1.GetPipelineStatsRequest{
+		Ids:           []string{id},
+		IncludeStats:  true,
+		FromTimestamp: fromTimestamp,
+		ToTimestamp:   toTimestamp,
+	}
+	response, err := Client.GetPipelineStats(context.Background(), req)
+	require.NoError(suite.T(), err)
+	validatePipelineStats(suite.T(), expectedResponse, response)
+}
+
+func validatePipelineStats(t *testing.T, expected, actual *statsv1alpha1.GetPipelineStatsResponse) {
+	require.Len(t, actual.GetStats(), len(expected.GetStats()))
+	require.Equal(t, expected.GetTotalRecordsHandled(), actual.GetTotalRecordsHandled())
+	require.Equal(t, expected.GetTotalBytesHandled(), actual.GetTotalBytesHandled())
+	require.Equal(t, expected.GetTotalNumErrors(), actual.GetTotalNumErrors())
+	require.Equal(t, expected.GetTotalNumRetries(), actual.GetTotalNumRetries())
+	require.Len(t, actual.GetStats(), len(expected.GetStats()))
+	for _, expectedStat := range expected.GetStats() {
+		pipelineStats := actual.GetStats()[expectedStat.GetPipelineId()]
+		require.Equal(t, expectedStat.GetTotalRecordsHandled(), pipelineStats.TotalRecordsHandled)
+		require.Equal(t, expectedStat.GetTotalBytesHandled(), pipelineStats.TotalBytesHandled)
+		require.Equal(t, expectedStat.GetTotalNumErrors(), pipelineStats.TotalNumErrors)
+		require.Equal(t, expectedStat.GetTotalNumRetries(), pipelineStats.TotalNumRetries)
+		require.Len(t, pipelineStats.GetStats(), len(expectedStat.GetStats()))
 	}
 }
 
@@ -105,15 +189,22 @@ func mustReportRandomStat(t *testing.T, pipelineId string) statsv1alpha1.ReportP
 	return request
 }
 
-func mustReportRandomPipelineStats(t *testing.T, pipelineId string) *statsv1alpha1.ReportPipelineStatsRequest {
-	total := &statsv1alpha1.ReportPipelineStatsRequest{PipelineId: pipelineId}
+func mustReportRandomPipelineStats(t *testing.T, pipelineId string) *statsv1alpha1.PipelineAggregateStats {
+	total := &statsv1alpha1.PipelineAggregateStats{PipelineId: pipelineId, Stats: []*statsv1alpha1.PipelineStat{}}
 	numStats := gofakeit.Number(3, 10)
 	for i := 0; i < numStats; i++ {
 		req := mustReportRandomStat(t, pipelineId)
-		total.RecordsHandled += req.RecordsHandled
-		total.BytesHandled += req.BytesHandled
-		total.NumErrors += req.NumErrors
-		total.NumRetries += req.NumRetries
+		total.Stats = append(total.Stats, &statsv1alpha1.PipelineStat{
+			PipelineId:     pipelineId,
+			RecordsHandled: req.RecordsHandled,
+			BytesHandled:   req.BytesHandled,
+			NumErrors:      req.NumErrors,
+			NumRetries:     req.NumRetries,
+		})
+		total.TotalRecordsHandled += req.RecordsHandled
+		total.TotalBytesHandled += req.BytesHandled
+		total.TotalNumErrors += req.NumErrors
+		total.TotalNumRetries += req.NumRetries
 	}
 	return total
 }
