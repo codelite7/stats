@@ -70,6 +70,6 @@ jobs:
           ref: ${{ github.ref }}
           project-id: ${{ secrets.GCLOUD_PROJECT_ID_PROD }}
           credentials-json: ${{ secrets.GAR_WRITE_SERVICE_ACCOUNT_KEY }}
-          wait-for-ports: 8080
+          wait-for-ports: 8083
           helm-repo-username: ${{ secrets.GIT_RUNNER_TOKEN }}
           helm-repo-password: ${{ secrets.GIT_RUNNER_TOKEN }}
